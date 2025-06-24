@@ -400,7 +400,6 @@ def main():
     
     sound.play_engine(volume=0.3)
     sound.play_wind(volume=0.0)
-    sound.play_ground(volume=0.0)
 
     clock = pygame.time.Clock()
     running = True
@@ -590,7 +589,7 @@ def main():
 
             # Wind and Ground Sounds
             if player.is_airborne:
-                sound.stop_ground()
+                sound.stop_wind()
                 # Make wind volume proportional to airspeed
                 wind_volume = min(1.0, player.velocity / 2.0) # Normalize
                 sound.set_wind_volume(wind_volume)
@@ -601,9 +600,6 @@ def main():
                     if sound.channels.get('ground') and not sound.channels['ground'].get_busy():
                          sound.play_ground()
                     ground_volume = min(1.0, player.velocity / 1.0) # Normalize
-                    sound.set_ground_volume(ground_volume)
-                else:
-                    sound.stop_ground()
 
         # --- Drawing ---
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)

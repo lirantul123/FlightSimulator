@@ -9,13 +9,10 @@ def load_sounds():
     pygame.mixer.init()
     
     sound_files = {
-        'engine': 'assets/sounds/engine.wav',
-        'wind': 'assets/sounds/wind.wav',
-        'ground': 'assets/sounds/ground.wav',
-        'shoot': 'assets/sounds/shoot.wav',
-        'crash': 'assets/sounds/crash.wav',
-        'splash': 'assets/sounds/splash.wav',
-        'stall': 'assets/sounds/stall_warning.wav'
+        'engine': 'sounds/engine.wav',
+        'wind': 'sounds/wind.wav',
+        'shoot': 'sounds/shoot.wav',
+        'stall': 'sounds/stall_warning.mp3'
     }
 
     for name, path in sound_files.items():
@@ -28,7 +25,6 @@ def load_sounds():
     # Reserve channels for looping sounds
     channels['engine'] = pygame.mixer.Channel(0) if sounds.get('engine') else None
     channels['wind'] = pygame.mixer.Channel(1) if sounds.get('wind') else None
-    channels['ground'] = pygame.mixer.Channel(2) if sounds.get('ground') else None
 
 def play_engine(volume=0.15):
     if channels.get('engine') and sounds.get('engine'):
@@ -58,41 +54,20 @@ def set_wind_volume(volume):
         volume = max(0.0, min(1.0, volume))
         channels['wind'].set_volume(volume)
 
-def play_ground(volume=1.0):
-    if channels.get('ground') and sounds.get('ground'):
-        channels['ground'].play(sounds['ground'], loops=-1)
-        channels['ground'].set_volume(volume)
-
-def stop_ground():
-    if channels.get('ground'):
-        channels['ground'].stop()
-
-def set_ground_volume(volume):
-    if channels.get('ground'):
-        volume = max(0.0, min(1.0, volume))
-        channels['ground'].set_volume(volume)
-
-def play_crash():
-    if sounds.get('crash'):
-        sounds['crash'].play()
-
-def stop_all_looping():
-    stop_engine()
-    stop_wind()
-    stop_ground()
-
-def stop_all_sounds():
-    pygame.mixer.stop()
-
 def play_stall_warning():
+    print("Attempting to play stall warning sound...")
     if sounds.get('stall'):
         sounds['stall'].play()
+    else:
+        print("Stall sound not loaded!")
 
 def play_shoot():
     if sounds.get('shoot'):
         sounds['shoot'].play()
 
-def play_splash(volume=0.8):
-    if sounds.get('splash'):
-        sounds['splash'].set_volume(volume)
-        sounds['splash'].play() 
+def stop_all_looping():
+    stop_engine()
+    stop_wind()
+
+def stop_all_sounds():
+    pygame.mixer.stop() 

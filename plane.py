@@ -150,10 +150,7 @@ class Plane:
             self.roll = 0 # Level out on landing
             if self.vertical_speed < -0.8: # Hard landing
                 self.health -= 60
-                sound.play_crash()
-            else:
-                sound.play_ground()
-        
+
         # Fuel consumption
         if self.thrust_level > 0:
             self.fuel -= self.fuel_consumption * self.thrust_level
@@ -217,6 +214,26 @@ class Plane:
             if bullet['life'] > 0:
                 new_bullets.append(bullet)
         self.bullets = new_bullets
+
+        # Stall detection
+        was_stalling = self.is_stalling
+        self.is_stalling = False
+        if self.is_airborne:
+            # Stall conditions: low speed or high angle of attack
+            if self.velocity < 2.0 or abs(self.pitch) > 25.0:
+                self.is_stalling = True
+                if not was_stalling:
+                    print(f"STALL WARNING! Velocity: {self.velocity:.2f}, Pitch: {self.pitch:.2f}, Airborne: {self.is_airborne}")
+                    sound.play_stall_warning()
+            elif was_stalling:
+                print(f"Recovered from stall. Velocity: {self.velocity:.2f}, Pitch: {self.pitch:.2f}")
+        # Debug: Print flight parameters every 60 frames (1 second)
+        if not hasattr(self, 'debug_counter'):
+            self.debug_counter = 0
+        self.debug_counter += 1
+        if self.debug_counter >= 60:
+            print(f"DEBUG: Velocity={self.velocity:.2f}, Pitch={self.pitch:.2f}, Airborne={self.is_airborne}, Altitude={self.y:.2f}")
+            self.debug_counter = 0
 
     def update_destroyed(self):
         if self.explosion_timer == 0 and self.smoke_timer == 0: # First time
