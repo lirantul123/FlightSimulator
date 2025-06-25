@@ -218,13 +218,13 @@ class Plane:
                             hit_event = {
                                 'type': 'hit',
                                 'target_id': plane.player_id,
-                                'attacker_name': 'Unknown', # Will be filled in main
+                                'attacker_id': self.player_id,
                                 'damage': damage
                             }
                             # Check for a kill
                             if plane.health - damage <= 0:
                                 hit_event['is_kill'] = True
-                                hit_event['victim_name'] = plane.name
+                                hit_event['victim_name'] = getattr(plane, 'name', str(plane.player_id))
                             
                             hit_events.append(hit_event)
                             bullet['life'] = 0 # Bullet disappears on hit

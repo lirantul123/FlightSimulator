@@ -257,22 +257,27 @@ def network_loop(player, player_name, player_id, server_ip):
             try:
                 msg, end_index = json.JSONDecoder().raw_decode(buffer)
                 
-                if msg['type'] == 'state' and msg['player_id'] != player_id:
+                if msg['type'] == 'state':
                     p_id = msg['player_id']
-                    if p_id not in other_players:
-                        other_players[p_id] = Plane(0,0,0, plane_id=p_id)
-
-                    # Update the remote player's state
-                    p = other_players[p_id]
-                    p.x = msg.get('x', p.x)
-                    p.y = msg.get('y', p.y)
-                    p.z = msg.get('z', p.z)
-                    p.pitch = msg.get('pitch', p.pitch)
-                    p.roll = msg.get('roll', p.roll)
-                    p.yaw = msg.get('yaw', p.yaw)
-                    p.health = msg.get('health', p.health)
-                    p.color = msg.get('color', p.color)
-                    p.name = msg.get('name', p.name)
+                    if p_id == player_id:
+                        # Update local player state from own state message, but do NOT increment deaths
+                        player.score = msg.get('score', player.score)
+                        player.deaths = msg.get('deaths', player.deaths)
+                    else:
+                        if p_id not in other_players:
+                            other_players[p_id] = Plane(0,0,0, plane_id=p_id)
+                        p = other_players[p_id]
+                        p.x = msg.get('x', p.x)
+                        p.y = msg.get('y', p.y)
+                        p.z = msg.get('z', p.z)
+                        p.pitch = msg.get('pitch', p.pitch)
+                        p.roll = msg.get('roll', p.roll)
+                        p.yaw = msg.get('yaw', p.yaw)
+                        p.health = msg.get('health', p.health)
+                        p.color = msg.get('color', p.color)
+                        p.name = msg.get('name', p.name)
+                        p.score = msg.get('score', 0)
+                        p.deaths = msg.get('deaths', 0)
                 elif msg['type'] == 'bullet' and msg['player_id'] != player_id:
                     remote_bullets.append(msg)
                 elif msg['type'] == 'chat':
@@ -280,23 +285,12 @@ def network_loop(player, player_name, player_id, server_ip):
                     if len(chat_messages) > 8: chat_messages.pop(0)
                 elif msg['type'] == 'hit':
                     target_id = msg['target_id']
+                    attacker_id = msg.get('attacker_id', None)
                     if target_id == player_id:
                         player.health -= msg['damage']
-                        add_game_event(f"You were hit by {msg['attacker_name']}")
-                    elif target_id in other_players:
-                        other_players[target_id]['health'] -= msg['damage']
-                    
-                    if msg.get('is_kill'):
-                        # The shooter's client will have already incremented their score.
-                        # We just need to update the death count of the victim.
-                        if target_id == player_id:
-                            player.deaths += 1
-                        elif target_id in other_players:
-                            # This part is tricky; we don't have a 'deaths' field
-                            # in other_players yet. We'll add it.
-                            if 'deaths' not in other_players[target_id]:
-                                other_players[target_id]['deaths'] = 0
-                            other_players[target_id]['deaths'] += 1
+                        add_game_event(f"You were hit by {msg.get('attacker_name', 'Unknown')}")
+                    if attacker_id == player_id and msg.get('is_kill'):
+                        player.score += 1
 
                 buffer = buffer[end_index:].lstrip()
             except json.JSONDecodeError:
