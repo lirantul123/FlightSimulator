@@ -53,4 +53,4 @@ python3 main.py
 - Select a plane and click "Start".
 
 ---
-Built with the help of an AI assistant. 
+Built with blood, sweat and tears.
