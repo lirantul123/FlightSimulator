@@ -19,19 +19,15 @@
 - **W/S:** Throttle up/down
 - **A/D:** Turn left/right (on ground)
 - **Arrow Keys:** Pitch and roll (in air)
-- **F:** Deploy flaps (for takeoff/landing)
-- **B:** Apply brakes (on ground)
 - **SPACE:** Fire guns
 - **C:** Cycle camera views
 - **T:** Open chat
 - **ESC:** Pause/Resume
-- **R (while paused):** Restart game
 
 A simple, fun, multiplayer flight simulator built with Python, PyOpenGL, and Pygame. Inspired by fly.pieter.com, this project features:
 - A modern, polished UI
 - Multiplayer dogfights
 - Multiple plane types with unique stats
-- AI planes for target practice
 
 ## How to Run
 
