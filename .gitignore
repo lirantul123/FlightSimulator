@@ -7,6 +7,7 @@ __pycache__/
 *.so
 
 NOTES.txt   
+*.zip
 
 # Distribution / packaging
 .Python
