@@ -9,6 +9,7 @@ class Plane:
     def __init__(self, x, y, z, plane_id=0):
         self.initial_pos = (0, 1.7, 0)  # Start above the ground, y=1.7
         self.x, self.y, self.z = self.initial_pos
+        self.name = "" # Add name attribute
         self.pitch = 0.0
         self.roll = 0.0
         self.yaw = 0.0
@@ -132,12 +133,18 @@ class Plane:
         self.z += self.velocity * fwd_z
         
         # 4. Handle Gravity and Ground Interaction
-        taking_off = (not self.is_airborne and self.thrust_level > 0.3 and self.velocity > 2.0 and self.pitch > 2)
-        if taking_off:
+        # Apply lift based on speed and pitch
+        lift = self.velocity * self.velocity * 0.002
+        if self.pitch > 0:
+            lift *= (1 + self.pitch / 20)
+        
+        # Takeoff logic
+        if not self.is_airborne and self.velocity > self.takeoff_speed and self.pitch > 1:
             self.is_airborne = True
-            self.y += 0.1 # Pop off the ground
             sound.play_wind()
+        
         if self.is_airborne:
+            self.y += lift
             self.y -= self.gravity
 
         self.vertical_speed = (self.y - self.last_y) * 60.0
@@ -186,6 +193,7 @@ class Plane:
 
         # Update bullets
         new_bullets = []
+        hit_events = [] # To be returned and sent over network
         for bullet in self.bullets:
             # Move bullet forward
             bullet_yaw_rad = math.radians(bullet['yaw'])
@@ -199,41 +207,43 @@ class Plane:
             bullet['y'] += bullet['speed'] * b_fwd_y
             bullet['z'] += bullet['speed'] * b_fwd_z
             bullet['life'] -= 1
-            # Hit detection (for multiplayer)
+            
+            # Hit detection
             if other_planes:
                 for plane in other_planes:
-                    if plane.player_id != bullet['player_id'] and plane.health > 0:
-                        dx = bullet['x'] - plane.x
-                        dy = bullet['y'] - plane.y
-                        dz = bullet['z'] - plane.z
-                        dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-                        if dist < 0.7:  # hitbox radius
-                            plane.health -= bullet.get('damage', 20)
-                            print(f"Plane {plane.player_id} was hit! Health: {plane.health}")
-                            bullet['life'] = 0
+                    if plane.player_id != self.player_id and plane.health > 0:
+                        dist = math.sqrt((bullet['x'] - plane.x)**2 + (bullet['y'] - plane.y)**2 + (bullet['z'] - plane.z)**2)
+                        if dist < 2.0: # Hitbox size
+                            damage = self.firepower * 10
+                            hit_event = {
+                                'type': 'hit',
+                                'target_id': plane.player_id,
+                                'attacker_name': 'Unknown', # Will be filled in main
+                                'damage': damage
+                            }
+                            # Check for a kill
+                            if plane.health - damage <= 0:
+                                hit_event['is_kill'] = True
+                                hit_event['victim_name'] = plane.name
+                            
+                            hit_events.append(hit_event)
+                            bullet['life'] = 0 # Bullet disappears on hit
+                            break 
+            
             if bullet['life'] > 0:
                 new_bullets.append(bullet)
         self.bullets = new_bullets
 
         # Stall detection
         was_stalling = self.is_stalling
-        self.is_stalling = False
-        if self.is_airborne:
-            # Stall conditions: low speed or high angle of attack
-            if self.velocity < 2.0 or abs(self.pitch) > 25.0:
-                self.is_stalling = True
-                if not was_stalling:
-                    print(f"STALL WARNING! Velocity: {self.velocity:.2f}, Pitch: {self.pitch:.2f}, Airborne: {self.is_airborne}")
-                    sound.play_stall_warning()
-            elif was_stalling:
-                print(f"Recovered from stall. Velocity: {self.velocity:.2f}, Pitch: {self.pitch:.2f}")
-        # Debug: Print flight parameters every 60 frames (1 second)
-        if not hasattr(self, 'debug_counter'):
-            self.debug_counter = 0
-        self.debug_counter += 1
-        if self.debug_counter >= 60:
-            print(f"DEBUG: Velocity={self.velocity:.2f}, Pitch={self.pitch:.2f}, Airborne={self.is_airborne}, Altitude={self.y:.2f}")
-            self.debug_counter = 0
+        if self.is_airborne and (self.velocity < self.takeoff_speed * 0.8 or abs(self.pitch) > 25):
+            self.is_stalling = True
+            if not was_stalling:
+                sound.play_stall_warning()
+        else:
+            self.is_stalling = False
+            
+        return hit_events
 
     def update_destroyed(self):
         if self.explosion_timer == 0 and self.smoke_timer == 0: # First time

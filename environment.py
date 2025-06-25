@@ -189,7 +189,9 @@ class Environment:
         for mountain in self.mountains:
             self.draw_mountain(mountain['pos'], mountain['height'], mountain['base'])
         for tree in self.trees:
+            glPushMatrix()
             self.draw_tree(tree)
+            glPopMatrix()
         for cloud in self.clouds:
             self.draw_cloud(cloud['pos'], cloud['size'])
             

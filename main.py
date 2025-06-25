@@ -17,7 +17,7 @@ from environment import Environment
 from skybox import Skybox
 from camera import Camera
 from instruments import Instruments
-from utils import draw_text, draw_throttle, draw_compass, draw_health_bar, draw_hud_box, draw_rounded_box, draw_icon
+from utils import draw_text, draw_throttle, draw_compass, draw_health_bar, draw_hud_box, draw_rounded_box, draw_icon, draw_cube
 import sound
 
 PLANE_OPTIONS = [
@@ -106,7 +106,7 @@ def draw_pause_menu(display, focus):
         text_color = (255, 255, 0) if is_focused else (220, 220, 220)
         draw_text(btn_x + btn_w//2 - len(option)*6, y + 15, option, font_size=24) #, color=text_color)
 
-def draw_minimap(player, dummies, ai_plane, other_players, display):
+def draw_minimap(player, other_players, display):
     # Player-up Circular Radar
     map_size = 80 
     map_x = display[0] - map_size - 25
@@ -165,7 +165,7 @@ def draw_minimap(player, dummies, ai_plane, other_players, display):
         dz_world = tz - pz
 
         # Rotate vector by player's yaw to get map coordinates
-        yaw_rad = math.radians(pyaw)
+        yaw_rad = math.radians(-pyaw) # Invert yaw to fix direction
         dx_map = (dx_world * math.cos(yaw_rad) + dz_world * math.sin(yaw_rad)) * scale
         dz_map = (-dx_world * math.sin(yaw_rad) + dz_world * math.cos(yaw_rad)) * scale
 
@@ -180,9 +180,9 @@ def draw_minimap(player, dummies, ai_plane, other_players, display):
             glColor3f(*color)
             if is_arrow:
                 glBegin(GL_TRIANGLES)
-                glVertex2f(0, 5)
-                glVertex2f(-3, -3)
-                glVertex2f(3, -3)
+                glVertex2f(0, 6) # Make arrow larger
+                glVertex2f(-4, -4)
+                glVertex2f(4, -4)
                 glEnd()
             else:
                 glPointSize(5)
@@ -192,25 +192,20 @@ def draw_minimap(player, dummies, ai_plane, other_players, display):
             glPopMatrix()
 
     # Draw entities
-    for d in dummies:
-        if d.health > 0:
-            draw_target(player.x, player.y, player.z, player.yaw, d.x, d.y, d.z, d.yaw, (0.2, 0.6, 1.0))
-
-    for p_id, p_data in other_players.items():
-        if p_data.get('health', 100) > 0:
-            draw_target(player.x, player.y, player.z, player.yaw, p_data['x'], p_data['y'], p_data['z'], p_data['yaw'], (0.2, 1.0, 0.6))
-
-    if ai_plane.health > 0:
-        draw_target(player.x, player.y, player.z, player.yaw, ai_plane.x, ai_plane.y, ai_plane.z, ai_plane.yaw, (1.0, 0.2, 0.2), is_arrow=True)
+    for p_obj in other_players.values():
+        if p_obj.health > 0:
+            color = (1.0, 0.2, 0.2) # Bright Red
+            draw_target(player.x, player.y, player.z, player.yaw, p_obj.x, p_obj.y, p_obj.z, p_obj.yaw, color, is_arrow=True)
     
     glDisable(GL_BLEND)
 
 def network_loop(player, player_name, player_id, server_ip):
-    global other_players, network_running, remote_bullets, chat_messages, network_status, outgoing_messages
+    global other_players, network_running, remote_bullets, chat_messages, network_status, outgoing_messages, score
     network_status = "Connecting..."
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         s.connect((server_ip, 50007))
+        s.setblocking(False) # Make the socket non-blocking
         network_status = "Connected"
     except Exception as e:
         print(f"Could not connect to server: {e}")
@@ -222,55 +217,93 @@ def network_loop(player, player_name, player_id, server_ip):
     # Add a welcome message
     outgoing_messages.put(json.dumps({'type': 'chat', 'name': 'System', 'text': f'{player_name} has joined the lobby.'}))
 
+    buffer = ""
     while network_running:
-        # Send our state and any queued messages
         try:
-            # Send player state
+            # Send our state and any queued messages first
             state_msg = {
                 'type': 'state', 'player_id': player_id, 'name': player_name,
                 'x': player.x, 'y': player.y, 'z': player.z,
                 'yaw': player.yaw, 'pitch': player.pitch, 'roll': player.roll,
-                'health': player.health
+                'health': player.health,
+                'color': player.color,
+                'score': score,
+                'deaths': player.deaths
             }
             s.sendall(json.dumps(state_msg).encode())
-
-            # Send other queued messages (chat, bullets)
             while not outgoing_messages.empty():
                 msg_to_send = outgoing_messages.get_nowait()
                 s.sendall(msg_to_send.encode())
-
-        except Exception as e:
-            print(f"Send error: {e}")
-            break
-
-        # Receive others
-        try:
-            s.settimeout(0.05)
-            data = s.recv(4096)
-            if data:
-                try:
-                    msg = json.loads(data.decode())
-                    if msg['type'] == 'state' and msg['player_id'] != player_id:
-                        other_players[msg['player_id']] = msg
-                    elif msg['type'] == 'bullet' and msg['player_id'] != player_id:
-                        remote_bullets.append(msg)
-                    elif msg['type'] == 'chat' and msg.get('name') != player_name:
-                        chat_messages.append((msg['name'], msg['text']))
-                        if len(chat_messages) > 8:
-                            chat_messages.pop(0)
-                    elif msg['type'] == 'hit' and msg['target_id'] == player_id:
-                        player.health -= msg['damage']
-                        add_game_event(f"You were hit by {msg['attacker_name']}!")
-                    elif msg['type'] == 'kill':
-                        add_game_event(f"{msg['killer_name']} shot down {msg['victim_name']}.")
-                        if msg['killer_name'] == player_name:
-                            score += 10
-                except Exception:
-                    pass
-        except socket.timeout:
+            
+            # Now, try to receive data
+            data = s.recv(4096).decode()
+            if not data:
+                network_running = False
+                break
+            buffer += data
+            
+        except BlockingIOError:
+            # This is expected when no data is available.
             pass
-        except Exception:
+        except Exception as e:
+            print(f"Network error: {e}")
+            network_running = False
             break
+
+        # Process everything in the buffer
+        while True: 
+            if not buffer:
+                break
+            try:
+                msg, end_index = json.JSONDecoder().raw_decode(buffer)
+                
+                if msg['type'] == 'state' and msg['player_id'] != player_id:
+                    p_id = msg['player_id']
+                    if p_id not in other_players:
+                        other_players[p_id] = Plane(0,0,0, plane_id=p_id)
+
+                    # Update the remote player's state
+                    p = other_players[p_id]
+                    p.x = msg.get('x', p.x)
+                    p.y = msg.get('y', p.y)
+                    p.z = msg.get('z', p.z)
+                    p.pitch = msg.get('pitch', p.pitch)
+                    p.roll = msg.get('roll', p.roll)
+                    p.yaw = msg.get('yaw', p.yaw)
+                    p.health = msg.get('health', p.health)
+                    p.color = msg.get('color', p.color)
+                    p.name = msg.get('name', p.name)
+                elif msg['type'] == 'bullet' and msg['player_id'] != player_id:
+                    remote_bullets.append(msg)
+                elif msg['type'] == 'chat':
+                    chat_messages.append((msg['name'], msg['text']))
+                    if len(chat_messages) > 8: chat_messages.pop(0)
+                elif msg['type'] == 'hit':
+                    target_id = msg['target_id']
+                    if target_id == player_id:
+                        player.health -= msg['damage']
+                        add_game_event(f"You were hit by {msg['attacker_name']}")
+                    elif target_id in other_players:
+                        other_players[target_id]['health'] -= msg['damage']
+                    
+                    if msg.get('is_kill'):
+                        # The shooter's client will have already incremented their score.
+                        # We just need to update the death count of the victim.
+                        if target_id == player_id:
+                            player.deaths += 1
+                        elif target_id in other_players:
+                            # This part is tricky; we don't have a 'deaths' field
+                            # in other_players yet. We'll add it.
+                            if 'deaths' not in other_players[target_id]:
+                                other_players[target_id]['deaths'] = 0
+                            other_players[target_id]['deaths'] += 1
+
+                buffer = buffer[end_index:].lstrip()
+            except json.JSONDecodeError:
+                break # Incomplete message in buffer
+        
+        time.sleep(1/60) # Limit loop to ~60Hz
+
     network_status = "Disconnected"
     s.close()
     network_running = False
@@ -288,13 +321,19 @@ def draw_scoreboard(players, display, score, player):
 
     # Player data (add local player to list for display)
     all_players = list(players.values())
-    all_players.append({'name': player_name, 'score': score, 'deaths': player.deaths}) # Add self
+    all_players.append(player) # Add self
     
     for i, p in enumerate(all_players):
         y = box_y + box_h - 120 - i * 30
-        draw_text(box_x + 30, y, p['name'], font_size=20)
-        draw_text(box_x + 250, y, str(p.get('score', 0)), font_size=20)
-        draw_text(box_x + 380, y, str(p.get('deaths', 0)), font_size=20)
+        # Use attribute access for Plane objects, fallback to dict for local player
+        name = getattr(p, 'name', getattr(p, 'player_name', None)) or getattr(p, 'player_name', None) or getattr(p, 'callsign', None) or 'You'
+        score_val = getattr(p, 'score', None)
+        if score_val is None:
+            score_val = getattr(p, 'score', 0) if hasattr(p, 'score') else score
+        deaths_val = getattr(p, 'deaths', 0)
+        draw_text(box_x + 30, y, str(name), font_size=20)
+        draw_text(box_x + 250, y, str(score_val), font_size=20)
+        draw_text(box_x + 380, y, str(deaths_val), font_size=20)
 
 def add_game_event(text):
     event_id = time.time()
@@ -362,7 +401,7 @@ def draw_fuel_gauge(x, y, w, h, fuel_level):
     glDisable(GL_BLEND)
 
 def main():
-    global selected_plane_idx, plane_selected, player_name, player_id, lobby_entered, other_players, network_thread, network_running, chat_messages, chat_input, chat_active, remote_bullets, settings, settings_focus, settings_active, settings_error, server_ip, pause_focus, network_status, scoreboard_active, game_state, outgoing_messages
+    global selected_plane_idx, plane_selected, player_name, player_id, lobby_entered, other_players, network_thread, network_running, chat_messages, chat_input, chat_active, remote_bullets, settings, settings_focus, settings_active, settings_error, server_ip, pause_focus, network_status, scoreboard_active, game_state, outgoing_messages, score
     pygame.init()
     sound.load_sounds()
 
@@ -378,14 +417,6 @@ def main():
     glLightfv(GL_LIGHT0, GL_POSITION, [0, 5, 5, 1])
 
     player = Plane(0, 0.6, 0, plane_id=0)
-    dummies = [
-        Plane(10, 0.6, -20, plane_id=1),
-        Plane(-12, 0.6, -25, plane_id=2),
-        Plane(5, 0.6, -35, plane_id=3)
-    ]
-    ai_plane = Plane(0, 0.6, -40, plane_id=99)
-    ai_direction = 1  # 1 for right, -1 for left
-    ai_dodge_timer = 0
     score = 0
     
     game_state = GAME_STATE_SETTINGS # Start in settings
@@ -478,8 +509,6 @@ def main():
                             game_state = GAME_STATE_PLAYING
                         elif pause_focus == 1: # Restart
                             player.respawn()
-                            for d in dummies: d.respawn()
-                            ai_plane.respawn()
                             score = 0
                             game_state = GAME_STATE_PLAYING
                         elif pause_focus == 2: # Main Menu
@@ -491,8 +520,6 @@ def main():
                             game_state = GAME_STATE_SETTINGS
                             lobby_entered = False
                             player.reset()
-                            for d in dummies: d.reset()
-                            ai_plane.reset()
                             score = 0
         
         elif game_state == GAME_STATE_PLAYING:
@@ -541,45 +568,26 @@ def main():
         # --- Game Logic Update ---
         game_environment.update([player.x, player.y, player.z])
         if game_state == GAME_STATE_PLAYING:
-            # Score logic for dummies
-            for d in dummies:
-                prev_health = d.health
-                if d.health > 0:
-                    d.update([player])
-                else:
-                    d.update_destroyed()
-                if prev_health > 0 and d.health <= 0:
-                    score += 1
-                    add_game_event(f"{player_name} shot down a dummy plane.")
-            
-            # AI plane logic
-            prev_ai_health = ai_plane.health
-            if ai_plane.health > 0:
-                dz = ai_plane.z - player.z
-                if abs(dz) < 15:
-                    ai_plane.z -= 0.3
-                elif abs(dz) > 30:
-                    ai_plane.z += 0.2
-                
-                if ai_dodge_timer > 0:
-                    ai_plane.x += ai_direction * 0.7
-                    ai_dodge_timer -= 1
-                else:
-                    if abs(ai_plane.x - player.x) < 2 and random.random() < 0.1:
-                        ai_direction = 1 if ai_plane.x < player.x else -1
-                        ai_dodge_timer = random.randint(10, 20)
-                    else:
-                        if random.random() < 0.02:
-                            ai_direction *= -1
-                        ai_plane.x += ai_direction * 0.2
-                ai_plane.update([player])
+            if player.health <= 0:
+                player.update_destroyed() # This will handle the explosion and timers
+                if player.respawn_timer <= 0:
+                    player.respawn()
+                    add_game_event("You have respawned.")
             else:
-                ai_plane.update_destroyed()
+                hit_events = player.update(list(other_players.values()))
+                for event in hit_events:
+                    event['attacker_name'] = player_name
+                    outgoing_messages.put(json.dumps(event))
 
-            if prev_ai_health > 0 and ai_plane.health <= 0:
-                score += 2
-            
-            player.update(dummies + [ai_plane])
+                    # Process locally for immediate feedback
+                    target_id = event['target_id']
+                    if target_id in other_players:
+                        # Don't modify the health directly, wait for server confirmation
+                        pass
+
+                    if event.get('is_kill'):
+                        score += 1
+                        add_game_event(f"You shot down {event['victim_name']}")
             
             # --- Sound Updates ---
             # Engine Volume
@@ -619,37 +627,17 @@ def main():
 
         if camera.get_mode() != 'cockpit':
             player.draw()
-            for d in dummies:
-                glPushMatrix()
-                glTranslatef(d.x, d.y + 3.5, d.z)
-                draw_health_bar(-30, 0, 60, 8, d.health)
-                glPopMatrix()
-                d.draw()
-            # AI plane health bar
-            glPushMatrix()
-            glTranslatef(ai_plane.x, ai_plane.y + 3.5, ai_plane.z)
-            draw_health_bar(-30, 0, 60, 8, ai_plane.health)
-            glPopMatrix()
-            ai_plane.draw()
 
         # Draw other players
-        for op in other_players.values():
-            if op['health'] <= 0:
-                continue
-            glPushMatrix()
-            glTranslatef(op['x'], op['y'], op['z'])
-            glRotatef(op['yaw'], 0, 1, 0)
-            glRotatef(op['roll'], 0, 0, 1)
-            glRotatef(op['pitch'], 1, 0, 0)
-            glColor3f(0.3, 1.0, 0.3)
-            glScalef(1.0, 0.2, 5.0)
-            draw_cube()
-            glPopMatrix()
-            # Draw name above
-            glPushMatrix()
-            glTranslatef(op['x'], op['y'] + 2.5, op['z'])
-            draw_text(-30, 0, op['name'], font_size=18)
-            glPopMatrix()
+        for p_obj in other_players.values():
+            if p_obj.health > 0:
+                p_obj.draw()
+
+                # Health bar above other players
+                glPushMatrix()
+                glTranslatef(p_obj.x, p_obj.y + 2.0, p_obj.z)
+                draw_health_bar(-0.8, 0, 1.6, 0.2, p_obj.health)
+                glPopMatrix()
 
         # Multiplayer bullet firing
         if player.bullets:
@@ -686,7 +674,7 @@ def main():
         draw_text(display[0]//2 - 30, display[1] - 55, f"Score: {score}", font_size=28)
         
         # Minimap (bottom right) and Chat (bottom left)
-        draw_minimap(player, dummies, ai_plane, other_players, display)
+        draw_minimap(player, other_players, display)
         draw_chat_ui(display, chat_messages, chat_input, chat_active)
 
         # Throttle (bottom right)

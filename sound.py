@@ -12,7 +12,7 @@ def load_sounds():
         'engine': 'sounds/engine.wav',
         'wind': 'sounds/wind.wav',
         'shoot': 'sounds/shoot.wav',
-        'stall': 'sounds/stall_warning.mp3'
+        'stall': 'sounds/stall_warning.wav'
     }
 
     for name, path in sound_files.items():

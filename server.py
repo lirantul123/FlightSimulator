@@ -6,31 +6,51 @@ HOST = '0.0.0.0'
 PORT = 50007
 
 clients = []
+clients_lock = threading.Lock()
 
 # Each client sends: {"type": "state"|"bullet"|"chat", ...}
 
 def handle_client(conn, addr):
     print(f"Client connected: {addr}")
+    buffer = ""
     while True:
         try:
-            data = conn.recv(4096)
+            data = conn.recv(4096).decode()
             if not data:
                 break
-            try:
-                msg = json.loads(data.decode())
-            except Exception:
-                continue
-            # Broadcast to all other clients
-            for c in clients:
-                if c != conn:
-                    try:
-                        c.sendall(data)
-                    except Exception:
-                        pass
-        except Exception:
+            
+            buffer += data
+            while True:
+                try:
+                    msg, end_index = json.JSONDecoder().raw_decode(buffer)
+                    
+                    # If we successfully decoded a message, broadcast it
+                    broadcast_data = json.dumps(msg).encode()
+                    with clients_lock:
+                        for c in clients:
+                            if c != conn:
+                                try:
+                                    c.sendall(broadcast_data)
+                                except Exception as e:
+                                    print(f"Broadcast error to {c.getpeername()}: {e}")
+                    
+                    # Remove the processed message from the buffer
+                    buffer = buffer[end_index:].lstrip()
+
+                except json.JSONDecodeError:
+                    # Not a complete JSON object yet, wait for more data
+                    break
+
+        except ConnectionResetError:
+            break # Client forcibly closed connection
+        except Exception as e:
+            print(f"Error with client {addr}: {e}")
             break
+            
     print(f"Client disconnected: {addr}")
-    clients.remove(conn)
+    with clients_lock:
+        if conn in clients:
+            clients.remove(conn)
     conn.close()
 
 def main():
@@ -41,7 +61,8 @@ def main():
     print(f"Server listening on {HOST}:{PORT}")
     while True:
         conn, addr = s.accept()
-        clients.append(conn)
+        with clients_lock:
+            clients.append(conn)
         threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
 
 if __name__ == '__main__':
